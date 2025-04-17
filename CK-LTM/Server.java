@@ -1,122 +1,227 @@
+package projec;
+import java.util.List;
+import java.util.ArrayList;
+import javax.swing.*;
+import java.awt.*;
 import java.io.*;
 import java.net.*;
 import java.sql.*;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
-public class Server {
+public class Server extends JFrame {
+    private JTextArea logArea;
+    private ServerSocket serverSocket;
 
-    private static final int SERVER_PORT = 1234;
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/dtb?useSSL=false&serverTimezone=UTC";
+    private static final String DB_USER = "root";
+    private static final String DB_PASSWORD = "newpassword123";
+    private static final List<Socket> clients = new ArrayList<>();
+    public Server() {
+        setTitle("Server GUI");
+        setSize(700, 450);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        initUI();
+        setLocationRelativeTo(null);
+        setVisible(true);
+        new Thread(this::startServer).start();
+    }
+    private void initUI() {
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setFont(new Font("Monospaced", Font.PLAIN, 13));
+        JScrollPane scrollPane = new JScrollPane(logArea);
+        add(scrollPane, BorderLayout.CENTER);
+    }
 
-    public static void main(String[] args) {
-        System.out.println("Server đang chạy...");
-        try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
+    private void startServer() {
+        try {
+            serverSocket = new ServerSocket(5000);
+            log("🚀 Server đang chạy tại cổng 5000...");
+
             while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("Kết nối mới từ " + clientSocket.getInetAddress());
-                new Thread(new ClientHandler(clientSocket)).start();
+                Socket client = serverSocket.accept();
+                clients.add(client);
+                log("📥 Kết nối mới từ " + client.getInetAddress().getHostAddress());
+                new Thread(() -> handleClient(client)).start();
             }
         } catch (IOException e) {
-            System.err.println("Lỗi khi chạy server: " + e.getMessage());
+            log("❌ Lỗi khi khởi động server: " + e.getMessage());
         }
     }
 
-    private static class ClientHandler implements Runnable {
-        private Socket clientSocket;
-
-        public ClientHandler(Socket socket) {
-            this.clientSocket= socket;
+private void handleClient(Socket client) {
+    try (
+        InputStream rawIn = client.getInputStream();
+        BufferedReader in = new BufferedReader(new InputStreamReader(rawIn));
+        PrintWriter out = new PrintWriter(client.getOutputStream(), true)
+    ) {
+        String command = in.readLine();
+        if (command == null) {
+            log("⚠️ Không nhận được lệnh từ client.");
+            return;
         }
 
-        @Override
-        public void run() {
-            try (
-                BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-                PrintWriter writer = new PrintWriter(clientSocket.getOutputStream(), true);
-                DataInputStream dataInputStream = new DataInputStream(clientSocket.getInputStream())
-            ) {
-                String requestType = reader.readLine();
-                if ("TEXT".equalsIgnoreCase(requestType)) {
-                    handleText(reader, writer);
-                } else if ("FILE".equalsIgnoreCase(requestType)) {
-                    handleFile(dataInputStream, reader, writer);
-                }
-            } catch (IOException e) {
-                System.err.println("Lỗi xử lý client: " + e.getMessage());
-            }
-        }
+        log("📨 Nhận lệnh: " + command);
 
-        private void handleText(BufferedReader reader, PrintWriter writer) throws IOException {
-            String encryptedText = reader.readLine();
-            int key = Integer.parseInt(reader.readLine());
+        if (command.equalsIgnoreCase("TEXT")) {
+            // === XỬ LÝ VĂN BẢN CEASAR ===
+            String encryptedText = in.readLine();
+            int key = Integer.parseInt(in.readLine());
+
+            log("🔐 Mã hóa: " + encryptedText + " | Khóa: " + key);
             String decryptedText = CeasarCipher.decrypt(encryptedText, key);
+            log("📝 Giải mã: " + decryptedText);
 
-            // Đếm số lượng các chữ cái
-            Map<Character, Integer> letterFrequencies = countLetterFrequencies(decryptedText);
-
-            // Gửi kết quả cho client
-            writer.println("Bản rõ: " + decryptedText);
-            writer.println("Tần suất chữ cái:");
-            for (Map.Entry<Character, Integer> entry : letterFrequencies.entrySet()) {
-                writer.println(entry.getKey() + ": " + entry.getValue());
+            int[] freq = new int[26];
+            for (char c : decryptedText.toCharArray()) {
+                if (Character.isLetter(c)) {
+                    freq[Character.toLowerCase(c) - 'a']++;
+                }
             }
-            writer.println("END");
 
-            // Lưu vào csdl
-            DatabaseHelper.saveTextMessage(encryptedText, decryptedText, key, letterFrequencies.toString());
-        }
+            StringBuilder freqStr = new StringBuilder();
+            for (int i = 0; i < 26; i++) {
+                if (freq[i] > 0) {
+                    freqStr.append((char) ('a' + i)).append(": ").append(freq[i]).append("\n");
+                }
+            }
 
-        private void handleFile(DataInputStream dataInputStream, BufferedReader reader, PrintWriter writer) throws IOException {
-            String fileName = dataInputStream.readUTF();
-            long fileSize = dataInputStream.readLong();
-            File file = new File("received_files/" + fileName);
-            file.getParentFile().mkdirs();
+            storeMessage(encryptedText, decryptedText, key, freqStr.toString());
 
-            try (FileOutputStream fos = new FileOutputStream(file)) {
+            out.println("Tần suất xuất hiện của các chữ cái:");
+            out.println(freqStr);
+            out.println("END");
+            out.flush();
+            log("📤 Đã gửi tần suất và lưu CSDL.");
+
+        } else if (command.equalsIgnoreCase("FILE")) {
+            // === XỬ LÝ FILE ===
+            DataInputStream dis = new DataInputStream(client.getInputStream());
+
+            String fileName = dis.readUTF();
+            long fileSize = dis.readLong();
+            log("📁 Nhận file: " + fileName + " (" + fileSize + " bytes)");
+
+            File folder = new File("server_files");
+            if (!folder.exists()) folder.mkdirs();
+
+            File receivedFile = new File(folder, fileName);
+
+            try (FileOutputStream fos = new FileOutputStream(receivedFile)) {
                 byte[] buffer = new byte[4096];
                 int bytesRead;
                 long totalRead = 0;
 
-                while (totalRead < fileSize && (bytesRead = dataInputStream.read(buffer)) != -1) {
+                while (totalRead < fileSize && (bytesRead = dis.read(buffer, 0, (int) Math.min(buffer.length, fileSize - totalRead))) != -1) {
                     fos.write(buffer, 0, bytesRead);
                     totalRead += bytesRead;
                 }
             }
 
-            writer.println("File nhận thành công: " + fileName);
+            // Kiểm tra kết quả
+            if (receivedFile.exists() && receivedFile.length() == fileSize) {
+                saveReceivedFile(fileName, receivedFile.getAbsolutePath(), fileSize);
+                out.println("✅ File nhận thành công: " + fileName);
+                out.println("📦 Kích thước: " + fileSize + " bytes");
+                log("✅ File đã lưu vào: " + receivedFile.getAbsolutePath());
+            } else {
+                out.println("❌ Lỗi khi lưu file.");
+                log("❌ File ghi không đúng hoặc thiếu.");
+            }
 
-            // Lưu thông tin file vào csdl
-            DatabaseHelper.saveFileInfo(fileName, file.getAbsolutePath(), fileSize);
+            out.println("END");
+            out.flush();
+
+        } else {
+            out.println("❌ Lệnh không hợp lệ.");
+            out.println("END");
+            log("❗ Lệnh không hợp lệ từ client.");
         }
 
-        private Map<Character, Integer> countLetterFrequencies(String text) {
-            Map<Character, Integer> frequencies = new HashMap<>();
-            for (char c : text.toCharArray()) {
-                if (Character.isLetter(c)) {
-                    c = Character.toLowerCase(c);
-                    frequencies.put(c, frequencies.getOrDefault(c, 0) + 1);
-                }
-            }
-            return frequencies;
+    } catch (Exception e) {
+        log("❌ Lỗi xử lý client: " + e.getMessage());
+        e.printStackTrace();
+    } finally {
+        try {
+            client.close();
+        } catch (IOException e) {
+            log("❌ Lỗi đóng kết nối client.");
+        }
+    }
+}
+
+
+    private void storeMessage(String encryptedText, String decryptedText, int key, String frequencies) {
+        int nextId = getNextId("text_messages");
+        String sql = "INSERT INTO text_messages (id, encrypted_text, decrypted_text, key_value, letter_frequencies) VALUES (?, ?, ?, ?, ?)";
+
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+            stmt.setInt(1, nextId);
+            stmt.setString(2, encryptedText);
+            stmt.setString(3, decryptedText);
+            stmt.setInt(4, key);
+            stmt.setString(5, frequencies);
+            stmt.executeUpdate();
+            log("✅ Tin nhắn đã lưu vào bảng text_messages.");
+        } catch (SQLException e) {
+            log("❌ Lỗi SQL (TEXT): " + e.getMessage());
         }
     }
 
-    public static class CeasarCipher {
-        public static String encrypt(String text, int key) {
+   private void saveReceivedFile(String filename, String filepath, long size) {
+    int nextId = getNextId("received_files");
+    String sql = "INSERT INTO received_files (id, filename, filepath, size) VALUES (?, ?, ?, ?)";
+
+    try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+         PreparedStatement stmt = conn.prepareStatement(sql)) {
+
+        stmt.setInt(1, nextId);
+        stmt.setString(2, filename);
+        stmt.setString(3, filepath);
+        stmt.setLong(4, size);
+        stmt.executeUpdate();
+        log("✅ File đã lưu vào bảng received_files.");
+    } catch (SQLException e) {
+        log("❌ Lỗi SQL (FILE): " + e.getMessage());
+    }
+}
+
+
+    private int getNextId(String tableName) {
+        String sql = "SELECT MAX(id) FROM " + tableName;
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+
+            if (rs.next()) return rs.getInt(1) + 1;
+        } catch (SQLException e) {
+            log("❌ Lỗi truy vấn ID: " + e.getMessage());
+        }
+        return 1;
+    }
+
+    private void log(String message) {
+        SwingUtilities.invokeLater(() -> logArea.append(message + "\n"));
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(Server::new);
+    }
+
+    static class CeasarCipher {
+        public static String decrypt(String text, int shift) {
             StringBuilder result = new StringBuilder();
-            for (char character : text.toCharArray()) {
-                if (Character.isLetter(character)) {
-                    char base = Character.isUpperCase(character) ? 'A' : 'a';
-                    result.append((char) ((character - base + key) % 26 + base));
+            for (char c : text.toCharArray()) {
+                if (Character.isLetter(c)) {
+                    char base = Character.isLowerCase(c) ? 'a' : 'A';
+                    result.append((char) ((c - base - shift + 26) % 26 + base));
                 } else {
-                    result.append(character);
+                    result.append(c);
                 }
             }
             return result.toString();
-        }
-
-        public static String decrypt(String text, int key) {
-            return encrypt(text, 26 - key);
         }
     }
 }
