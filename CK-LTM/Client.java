@@ -1,155 +1,152 @@
-//package projec;
-
+package projec;
 import javax.swing.*;
-import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.io.*;
 import java.net.*;
 
 public class Client extends JFrame {
     private static final String SERVER_IP = "127.0.0.1";
-    private static final int SERVER_PORT = 1234;
+    private static final int SERVER_PORT = 5000;
 
     private JTextArea textArea;
     private JTextField keyField;
-    private JButton sendTextButton;
-    private JButton sendFileButton;
     private JLabel responseLabel;
     private JFileChooser fileChooser;
 
     public Client() {
-        setTitle("Client Caesar & File Sender");
-        setSize(600, 500);
+        setTitle("Chat Client");
+        setSize(800, 600);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setLocationRelativeTo(null);
+
         initUI();
         setVisible(true);
     }
 
     private void initUI() {
-        JPanel mainPanel = new JPanel(new BorderLayout(15, 15));
-        mainPanel.setBorder(new EmptyBorder(15, 15, 15, 15));
-        mainPanel.setBackground(new Color(240, 248, 255));
-        JPanel textPanel = new JPanel(new BorderLayout(10, 10));
-        textPanel.setBorder(BorderFactory.createTitledBorder("Gửi văn bản mã hóa Caesar"));
-        textPanel.setBackground(Color.WHITE);
+    fileChooser = new JFileChooser();
+    JTabbedPane tabbedPane = new JTabbedPane();
 
-        textArea = new JTextArea(5, 30);
-        textArea.setFont(new Font("Segoe UI", Font.PLAIN, 14));
-        textArea.setLineWrap(true);
-        JScrollPane scrollPane = new JScrollPane(textArea);
+    // Panel for Chat Client
+    JPanel clientPanel = new JPanel(new BorderLayout(15, 15));
+    clientPanel.setBackground(Color.LIGHT_GRAY);
+    clientPanel.setBorder(BorderFactory.createLineBorder(new Color(0xADD8E6), 8)); // 🌟 Viền xanh nhạt
 
-        keyField = new JTextField(5);
-        keyField.setFont(new Font("Segoe UI", Font.PLAIN, 14));
+    textArea = new JTextArea(5, 30);
+    keyField = new JTextField(5);
+    JButton sendTextButton = new JButton("Gửi văn bản");
+    sendTextButton.addActionListener(e -> sendEncryptedText());
+    sendTextButton.setBackground(new Color(0x87CEFA)); // 🌟 Nút xanh nhạt
+    sendTextButton.setForeground(Color.WHITE);
 
-        sendTextButton = new JButton("Gửi văn bản");
-        sendTextButton.setBackground(new Color(0x007BFF));
-        sendTextButton.setForeground(Color.WHITE);
+    JPanel textPanel = new JPanel(new BorderLayout());
+    textPanel.setBorder(BorderFactory.createTitledBorder("Mã hóa Caesar"));
+    textPanel.add(new JScrollPane(textArea), BorderLayout.CENTER);
 
-        JPanel keyPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        keyPanel.setBackground(Color.WHITE);
-        keyPanel.add(new JLabel("Khóa Caesar:"));
-        keyPanel.add(keyField);
-        keyPanel.add(sendTextButton);
+    JPanel bottomText = new JPanel();
+    bottomText.add(new JLabel("Khóa:"));
+    bottomText.add(keyField);
+    bottomText.add(sendTextButton);
+    textPanel.add(bottomText, BorderLayout.SOUTH);
 
-        textPanel.add(scrollPane, BorderLayout.CENTER);
-        textPanel.add(keyPanel, BorderLayout.SOUTH);
-        JPanel filePanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        filePanel.setBorder(BorderFactory.createTitledBorder("Gửi File"));
-        filePanel.setBackground(new Color(250, 250, 250));
+    // Panel for File Section
+    JButton sendFileButton = new JButton("Chọn & Gửi File");
+    sendFileButton.addActionListener(e -> sendFile());
+    sendFileButton.setBackground(new Color(0x87CEFA)); // 🌟 Nút xanh nhạt
+    sendFileButton.setForeground(Color.WHITE);
 
-        sendFileButton = new JButton("Chọn & Gửi File");
-        sendFileButton.setBackground(new Color(0x28A745));
-        sendFileButton.setForeground(Color.WHITE);
-        filePanel.add(sendFileButton);
-        JPanel responsePanel = new JPanel();
-        responsePanel.setBorder(BorderFactory.createTitledBorder("Phản hồi từ Server"));
-        responsePanel.setBackground(Color.WHITE);
+    JPanel filePanel = new JPanel();
+    filePanel.setBorder(BorderFactory.createTitledBorder("Gửi File"));
+    filePanel.add(sendFileButton);
 
-        responseLabel = new JLabel("<html><i>Chưa có phản hồi...</i></html>");
-        responseLabel.setFont(new Font("Segoe UI", Font.PLAIN, 13));
-        responsePanel.add(responseLabel);
+    // Response Section
+    responseLabel = new JLabel("<html><i>Chưa có phản hồi...</i></html>");
+    JPanel responsePanel = new JPanel();
+    responsePanel.setBorder(BorderFactory.createTitledBorder("Phản hồi"));
+    responsePanel.add(responseLabel);
 
-        // Add panels to main layout
-        mainPanel.add(textPanel, BorderLayout.NORTH);
-        mainPanel.add(filePanel, BorderLayout.CENTER);
-        mainPanel.add(responsePanel, BorderLayout.SOUTH);
-        add(mainPanel);
+    clientPanel.add(textPanel, BorderLayout.NORTH);
+    clientPanel.add(filePanel, BorderLayout.CENTER);
+    clientPanel.add(responsePanel, BorderLayout.SOUTH);
 
-        fileChooser = new JFileChooser();
-        sendTextButton.addActionListener(e -> sendEncryptedText());
-        sendFileButton.addActionListener(e -> sendFile());
-    }
+    // Server panel bọc client panel
+    JPanel serverPanel = new JPanel(new BorderLayout(15, 15));
+    serverPanel.setBackground(Color.LIGHT_GRAY);
+    serverPanel.setBorder(BorderFactory.createLineBorder(new Color(0xADD8E6), 8)); // 🌟 Viền xanh nhạt
+    serverPanel.add(clientPanel);
+
+    tabbedPane.addTab("Chat Client", clientPanel);
+    add(tabbedPane);
+}
+
 
     private void sendEncryptedText() {
-        try (
-            Socket socket = new Socket(SERVER_IP, SERVER_PORT);
-            PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()))
-        ) {
-            System.out.println("Đã kết nối tới Server (TEXT)");
+        String text = textArea.getText().trim();
+        int key = Integer.parseInt(keyField.getText().trim());
 
-            String message = textArea.getText().trim();
-            int key = Integer.parseInt(keyField.getText().trim());
-            String encrypted = CaesarCipher.encrypt(message, key);
-            writer.println("TEXT");
-            writer.println(encrypted);
-            writer.println(key);
-            StringBuilder response = new StringBuilder("<html>");
-            String line;
-            while (!(line = reader.readLine()).equals("END")) {
-                response.append(" ").append(line).append("<br>");
+        if (!text.isEmpty() && key != 0) {
+            try (Socket socket = new Socket(SERVER_IP, SERVER_PORT)) {
+                OutputStream rawOut = socket.getOutputStream();
+                PrintWriter out = new PrintWriter(rawOut, true);
+                out.println("TEXT");
+                out.println(text);
+                out.println(key);
+
+                InputStream rawIn = socket.getInputStream();
+                BufferedReader in = new BufferedReader(new InputStreamReader(rawIn));
+                String response = in.readLine();
+                responseLabel.setText("<html>" + response.replace("\n", "<br>") + "</html>");
+            } catch (IOException e) {
+                responseLabel.setText("❌ Không thể kết nối đến server!");
             }
-            response.append("</html>");
-            responseLabel.setText(response.toString());
-
-        } catch (IOException | NumberFormatException ex) {
-            responseLabel.setText("<html><span style='color:red'>Lỗi: " + ex.getMessage() + "</span></html>");
+        } else {
+            responseLabel.setText("❌ Vui lòng nhập văn bản và khóa hợp lệ!");
         }
     }
 
-    private void sendFile() {
-        int result = fileChooser.showOpenDialog(this);
-        if (result == JFileChooser.APPROVE_OPTION) {
-            File file = fileChooser.getSelectedFile();
-            try (
-                Socket socket = new Socket(SERVER_IP, SERVER_PORT);
-                DataOutputStream dataOut = new DataOutputStream(socket.getOutputStream());
-                BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                PrintWriter writer = new PrintWriter(socket.getOutputStream(), true);
-                FileInputStream fis = new FileInputStream(file)
-            ) {
-                System.out.println("Đã kết nối tới Server (FILE)");
-                writer.println("FILE");
+   private void sendFile() {
+    int returnValue = fileChooser.showOpenDialog(this);
+    if (returnValue == JFileChooser.APPROVE_OPTION) {
+        File file = fileChooser.getSelectedFile();
+
+        // Sử dụng luồng riêng để không làm đơ giao diện
+        new Thread(() -> {
+            try (Socket socket = new Socket(SERVER_IP, SERVER_PORT)) {
+                OutputStream rawOut = socket.getOutputStream();
+                DataOutputStream dataOut = new DataOutputStream(rawOut);
+
+                // Gửi lệnh "FILE" trước tiên
+                PrintWriter out = new PrintWriter(rawOut, true);
+                out.println("FILE");
+
+                // Gửi tên file và kích thước
                 dataOut.writeUTF(file.getName());
                 dataOut.writeLong(file.length());
-                byte[] buffer = new byte[4096];
-                int bytesRead;
-                while ((bytesRead = fis.read(buffer)) != -1) {
-                    dataOut.write(buffer, 0, bytesRead);
-                }
-                String response = reader.readLine();
-                responseLabel.setText("<html><span style='color:green'> " + response + "</span></html>");
-            } catch (IOException ex) {
-                responseLabel.setText("<html><span style='color:red'>Lỗi gửi file: " + ex.getMessage() + "</span></html>");
-            }
-        }
-    }
 
-    public static class CaesarCipher {
-        public static String encrypt(String text, int shift) {
-            StringBuilder result = new StringBuilder();
-            for (char c : text.toCharArray()) {
-                if (Character.isLetter(c)) {
-                    char base = Character.isUpperCase(c) ? 'A' : 'a';
-                    result.append((char) ((c - base + shift) % 26 + base));
-                } else {
-                    result.append(c);
+                try (FileInputStream fileIn = new FileInputStream(file)) {
+                    byte[] buffer = new byte[4096];
+                    int bytesRead;
+                    while ((bytesRead = fileIn.read(buffer)) != -1) {
+                        dataOut.write(buffer, 0, bytesRead);
+                    }
                 }
+
+                // Nhận phản hồi từ server
+                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+                String response = in.readLine();
+                SwingUtilities.invokeLater(() -> {
+                    responseLabel.setText("<html>" + response + "</html>");
+                });
+
+            } catch (IOException e) {
+                SwingUtilities.invokeLater(() -> {
+                    responseLabel.setText("❌ Lỗi khi gửi file: " + e.getMessage());
+                });
             }
-            return result.toString();
-        }
+        }).start(); // Bắt đầu luồng mới
     }
+}
+
 
     public static void main(String[] args) {
         SwingUtilities.invokeLater(Client::new);
